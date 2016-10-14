@@ -33,6 +33,7 @@ class Game
   @currentQ = null
   @hintLength = null
 
+
   constructor: (@robot) ->
     buffer = Fs.readFileSync(Path.resolve('./res', 'questions.json'))
     @questions = JSON.parse buffer
@@ -74,7 +75,7 @@ class Game
       checkAnswer = @currentQ.validAnswer.toLowerCase().replace /[\\'"\.,-\/#!$%\^&\*;:{}=\-_`~()\s]/g, ""
       checkAnswer = checkAnswer.replace /^(a(n?)|the)/g, ""
       if AnswerChecker(checkGuess, checkAnswer)
-        resp.reply "YOU ARE CORRECT!!1!!!111!! The answer is #{@currentQ.answer}"
+        resp.reply "was correct!  The answer is #{@currentQ.answer}."
         name = resp.envelope.user.name.toLowerCase().trim()
         value = @currentQ.value.replace /[^0-9.-]+/g, ""
         @robot.logger.debug "#{name} answered correctly."
@@ -115,9 +116,15 @@ class Game
         user.triviaScore = user.triviaScore or 0
         resp.send "#{user.name} - $#{user.triviaScore}"
 
+  setQuestionSet: (resp, questionSetName) ->
+    resp.send "#{questionSetName} requested."
 
 module.exports = (robot) ->
   game = new Game(robot)
+
+  robot.hear /^!questionset (.*)/, (resp) ->
+    game.setQuestionSet(resp, resp.match[1])
+
   robot.hear /^!trivia/, (resp) ->
     game.askQuestion(resp)
 
