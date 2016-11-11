@@ -192,6 +192,10 @@ class Game
 class ApiClient
   constructor: (@robot) ->
     @baseApiUrl = "#{process.env['PROGRAMMING_TRIVIA_CMS_URL']}/api"
+    @questionCreateBody = 'body'
+    @questionCreateAnswer = 'answer'
+    @questionCreateCategory = 'category'
+    @questionCreateValue = '1'
 
   apiGet: (path, callback, params = {}) ->
     url = "#{@baseApiUrl}/#{path}/#{params['id'] || ''}"
@@ -211,29 +215,7 @@ class ApiClient
         console.log(body)
         callback err , res, body
 
-  removeQuiz: (quizId) ->
-    console.log "Removing quiz #{quizId}"
-    @robot.http("#{@baseApiUrl}/quizzes/#{quizId}",
-      { method: "delete" })
-      .post() (err, res, body) ->
-        if err
-          console.log err
-          return err
-        console.log body
-        body
-
-  removeQuestion: (quizName, questionId) ->
-    console.log "Removing #{questionId} from #{quizName}"
-    @robot.http("#{@baseApiUrl}/quizzes/#{quizName}/questions/#{questionId}", {
-      method: "delete",
-    }).post() (err, res, body) ->
-        if err
-          console.log err
-          return err
-        console.log body
-        body
-
-  addQuestion: (quizName) ->
+  addQuestion: (quizName, callback) ->
     json = JSON.stringify(@getCurrentQuestion())
     
     console.log("Sending #{json} to #{quizName}")
@@ -241,21 +223,15 @@ class ApiClient
     @robot.http("#{@baseApiUrl}/quizzes/#{quizName}/questions")
       .header('Content-Type', 'application/json')
       .post(json) (err, res, body) ->
-        if err
-          return err
-        console.log(body)
-        body
+        callback err, res, body
 
-  deleteQuestion: (quizName, questionId) ->
+  deleteQuestion: (quizName, questionId, callback) ->
     url = "#{@baseApiUrl}/quizzes/#{quizName}/questions/#{questionId}"
 
     console.log("Sending DELETE to #{url}")
     @robot.http(url)
       .del() (err, res, body) ->
-        if err
-          return err
-        console.log(body)
-        body
+        callback err, res, body
 
   setQuestionCreateBody: (body) ->
     @questionCreateBody = body
@@ -269,16 +245,13 @@ class ApiClient
   setQuestionCreateValue: (value) ->
     @questionCreateValue = value
 
-  deleteQuiz: (quizName) ->
+  deleteQuiz: (quizName, callback) ->
     url = "#{@baseApiUrl}/quizzes/#{quizName}"
 
     console.log("Sending DELETE to #{url}")
     @robot.http(url)
       .del() (err, res, body) ->
-        if err
-          return err
-        console.log(body)
-        body
+        callback err, res, body
 
   getCurrentQuestion: () ->
     {
@@ -305,9 +278,9 @@ class ApiClient
       when "list-quizzes" then response = @apiGet 'quizzes', callback
       when "get-quiz" then response = @apiGet "quizzes/#{args[0]}", callback
       when "create-quiz" then response = @apiPost 'quizzes/create', callback, { "quiz-name": args[0] }
-      when "delete-quiz" then response = @deleteQuiz args[0]
-      when "add-question-to-quiz" then response = @addQuestion args[0]
-      when "delete-question-from-quiz" then response = @deleteQuestion args[0], args[1]
+      when "delete-quiz" then response = @deleteQuiz args[0], callback
+      when "add-question-to-quiz" then response = @addQuestion args[0], callback
+      when "delete-question-from-quiz" then response = @deleteQuestion args[0], args[1], callback
       else resp.send "#{command} not found."
     resp.send(response)
 
