@@ -330,7 +330,7 @@ module.exports = (robot) ->
 
   robot.hear /^!set-question ([a-z]+) ("|“)([\s0-9A-Za-z-]+)"/i, (resp) ->
     command = resp.match[1]
-    param = resp.match[2]
+    param = resp.match[3]
     console.log "command #{command}"
     console.log "param #{param}"
     
