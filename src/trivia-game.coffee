@@ -29,18 +29,86 @@ Path = require 'path'
 Cheerio = require 'cheerio'
 AnswerChecker = require './answer-checker'
 
+
+class Timer
+  @started = null
+  @stopped = null
+  @startTime = null
+  @stopTime = null
+
+  constructor: () ->
+    @reset()
+
+  start: () ->
+    if not @started
+      @startTime = (new Date).getTime()
+      @started = true
+      @stopped = false
+
+  stop: () -> 
+    if not @stopped
+      @stopTime = (new Date).getTime()
+      @stopped = true
+      @started = false
+
+  elapsed: () ->
+    (new Date).getTime() - @startTime
+
+  reset: () ->
+    @started = false
+    @stopped = true
+    @startTime = -1
+    @stopTime = -1
+
 class Game
   @currentQ = null
   @hintLength = null
-
+  @timer = null
+  @intervalId = null
+  @questionTimeoutSeconds = null
 
   constructor: (@robot) ->
     buffer = Fs.readFileSync(Path.resolve('./res', 'questions.json'))
+    @timer = new Timer()
+    @intervalId = null
     @questions = JSON.parse buffer
+    @questionTimeoutSeconds = 15
+    @baseApiUrl = "#{process.env['PROGRAMMING_TRIVIA_CMS_URL']}/api"
     @robot.logger.debug "Initiated trivia game script."
+
+  resetQuestionState: () ->
+    @resetInterval()
+    @timer.reset()
+
+  getSecondsElapsed: () ->
+    Math.floor(@timer.elapsed() / 1000.0)
+
+  resetInterval: ->
+    clearInterval(@intervalId) if (@intervalId)
+    @intervalId = null
+
+  setQuiz: (quiz) ->
+    console.log("QUIZ")
+    console.log(quiz)
+    @questions = quiz['question-ids']
+    console.log(@questions)
 
   askQuestion: (resp) ->
     unless @currentQ # set current question
+      @resetQuestionState()
+      @timer.start()
+      _this = this
+
+      @intervalId = setInterval () ->
+        seconds = _this.getSecondsElapsed()
+        max = _this.questionTimeoutSeconds
+        resp.send "#{max - seconds} seconds left"
+      , 5000
+
+      setTimeout () ->
+        _this.skipQuestion(resp)
+      , @questionTimeoutSeconds * 1000
+
       index = Math.floor(Math.random() * @questions.length)
       @currentQ = @questions[index]
       @hintLength = 1
@@ -61,11 +129,13 @@ class Game
       resp.send "The answer is #{@currentQ.answer}."
       @currentQ = null
       @hintLength = null
+      @resetQuestionState()
       @askQuestion(resp)
     else
       resp.send "There is no active question!"
 
   answerQuestion: (resp, guess) ->
+    console.log guess
     if @currentQ
       checkGuess = guess.toLowerCase()
       # remove html entities (slack's adapter sends & as &amp; now)
@@ -73,9 +143,11 @@ class Game
       # remove all punctuation and spaces, and see if the answer is in the guess.
       checkGuess = checkGuess.replace /[\\'"\.,-\/#!$%\^&\*;:{}=\-_`~()\s]/g, ""
       checkAnswer = @currentQ.validAnswer.toLowerCase().replace /[\\'"\.,-\/#!$%\^&\*;:{}=\-_`~()\s]/g, ""
-      checkAnswer = checkAnswer.replace /^(a(n?)|the)/g, ""
+      checkAnswer = checkAnswer.replace /^(an|the)/g, ""
+      console.log "checkGuess: #{checkGuess}"
+      console.log "checkAnswer: #{checkAnswer}"
       if AnswerChecker(checkGuess, checkAnswer)
-        resp.reply "was correct!  The answer is #{@currentQ.answer}."
+        resp.reply "YOU ARE CORRECT! The answer is #{@currentQ.answer}"
         name = resp.envelope.user.name.toLowerCase().trim()
         value = @currentQ.value.replace /[^0-9.-]+/g, ""
         @robot.logger.debug "#{name} answered correctly."
@@ -84,6 +156,7 @@ class Game
         user.triviaScore += parseInt value
         resp.reply "Score: #{user.triviaScore}"
         @robot.brain.save()
+        @resetQuestionState()
         @currentQ = null
         @hintLength = null
       else
@@ -115,16 +188,146 @@ class Game
       else
         user.triviaScore = user.triviaScore or 0
         resp.send "#{user.name} - $#{user.triviaScore}"
+    
+class ApiClient
+  constructor: (@robot) ->
+    @baseApiUrl = "#{process.env['PROGRAMMING_TRIVIA_CMS_URL']}/api"
 
-  setQuestionSet: (resp, questionSetName) ->
-    resp.send "#{questionSetName} requested."
+  apiGet: (path, callback, params = {}) ->
+    url = "#{@baseApiUrl}/#{path}/#{params['id'] || ''}"
+    console.log url
+
+    @robot.http(url)
+      .get() (err, res, body) ->
+        console.log(body)
+        callback err, res, body
+
+  apiPost: (path, callback, args) ->
+    json = JSON.stringify args
+    console.log(json)
+    @robot.http("#{@baseApiUrl}/#{path}")
+      .header('Content-Type', 'application/json')
+      .post(json) (err, res, body) ->
+        console.log(body)
+        callback err , res, body
+
+  removeQuiz: (quizId) ->
+    console.log "Removing quiz #{quizId}"
+    @robot.http("#{@baseApiUrl}/quizzes/#{quizId}",
+      { method: "delete" })
+      .post() (err, res, body) ->
+        if err
+          console.log err
+          return err
+        console.log body
+        body
+
+  removeQuestion: (quizName, questionId) ->
+    console.log "Removing #{questionId} from #{quizName}"
+    @robot.http("#{@baseApiUrl}/quizzes/#{quizName}/questions/#{questionId}", {
+      method: "delete",
+    }).post() (err, res, body) ->
+        if err
+          console.log err
+          return err
+        console.log body
+        body
+
+  addQuestion: (quizName) ->
+    json = JSON.stringify(@getCurrentQuestion())
+    
+    console.log("Sending #{json} to #{quizName}")
+
+    @robot.http("#{@baseApiUrl}/quizzes/#{quizName}/questions")
+      .header('Content-Type', 'application/json')
+      .post(json) (err, res, body) ->
+        if err
+          return err
+        console.log(body)
+        body
+
+  deleteQuestion: (quizName, questionId) ->
+    url = "#{@baseApiUrl}/quizzes/#{quizName}/questions/#{questionId}"
+
+    console.log("Sending DELETE to #{url}")
+    @robot.http(url)
+      .del() (err, res, body) ->
+        if err
+          return err
+        console.log(body)
+        body
+
+  setQuestionCreateBody: (body) ->
+    @questionCreateBody = body
+    
+  setQuestionCreateAnswer: (answer) ->
+    @questionCreateAnswer = answer
+
+  setQuestionCreateCategory: (category) ->
+    @questionCreateCategory = category
+
+  setQuestionCreateValue: (value) ->
+    @questionCreateValue = value
+
+  deleteQuiz: (quizName) ->
+    url = "#{@baseApiUrl}/quizzes/#{quizName}"
+
+    console.log("Sending DELETE to #{url}")
+    @robot.http(url)
+      .del() (err, res, body) ->
+        if err
+          return err
+        console.log(body)
+        body
+
+  getCurrentQuestion: () ->
+    {
+      "body": @questionCreateBody,
+      "answer": @questionCreateAnswer,
+      "category": @questionCreateCategory,
+      "value": @questionCreateValue
+    }
+
+  dev: (resp, command, args...) ->
+    response = ''
+    console.log(args)
+
+    callback = (err, res, body) ->
+      console.log('callback')
+      resp.send('callback (resp.send)')
+      if err
+        console.log err
+        return err
+      resp.send body
+      body
+
+    switch command
+      when "list-quizzes" then response = @apiGet 'quizzes', callback
+      when "get-quiz" then response = @apiGet "quizzes/#{args[0]}", callback
+      when "create-quiz" then response = @apiPost 'quizzes/create', callback, { "quiz-name": args[0] }
+      when "delete-quiz" then response = @deleteQuiz args[0]
+      when "add-question-to-quiz" then response = @addQuestion args[0]
+      when "delete-question-from-quiz" then response = @deleteQuestion args[0], args[1]
+      else resp.send "#{command} not found."
+    resp.send(response)
 
 module.exports = (robot) ->
   game = new Game(robot)
+  api = new ApiClient(robot)
 
-  robot.hear /^!questionset (.*)/, (resp) ->
-    game.setQuestionSet(resp, resp.match[1])
+  robot.hear /^!dev ([A-Za-z-]+) ?([\-_0-9A-Za-z]+)? ?([\-0-9A-Za-z]+)?/, (resp) ->
+    api.dev resp, resp.match[1], resp.match[2], resp.match[3]
 
+  robot.hear /^!set-quiz ([0-9A-Za-z-]+)/i, (resp) ->
+    quiz = api.dev resp, 'get-quiz', resp.match[1]
+
+    api.apiGet "quizzes/#{resp.match[1]}", (err, res, body) ->
+      game.setQuiz(JSON.parse(body))
+      if err
+        console.log err
+        return err
+      body
+    
   robot.hear /^!trivia/, (resp) ->
     game.askQuestion(resp)
 
@@ -140,5 +343,23 @@ module.exports = (robot) ->
   robot.hear /^!scores/i, (resp) ->
     game.checkScore(resp, "all")
 
+  robot.hear /^!set-question ([a-z]+) "([\s0-9A-Za-z-]+)"/i, (msg) ->
+    command = msg.match[1]
+    param = msg.match[2]
+    console.log "command #{command}"
+    console.log "param #{param}"
+    
+    switch command
+      when "body" then api.setQuestionCreateBody  param
+      when "category" then api.setQuestionCreateCategory param
+      when "value" then api.setQuestionCreateValue  param
+      when "answer" then api.setQuestionCreateAnswer param
+
+    currentQuestion = api.getCurrentQuestion()
+
+    msg.send JSON.stringify(currentQuestion)
+
   robot.hear /^!h(int)?/, (resp) ->
     game.hint(resp)
+
+module.ApiClient = ApiClient
