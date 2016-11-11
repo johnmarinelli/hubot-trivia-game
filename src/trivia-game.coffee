@@ -327,6 +327,22 @@ module.exports = (robot) ->
         console.log err
         return err
       body
+
+  robot.hear /^!set-question ([a-z]+) ("|“)([\s0-9A-Za-z-]+)"/i, (resp) ->
+    command = resp.match[1]
+    param = resp.match[2]
+    console.log "command #{command}"
+    console.log "param #{param}"
+    
+    switch command
+      when "body" then api.setQuestionCreateBody  param
+      when "category" then api.setQuestionCreateCategory param
+      when "value" then api.setQuestionCreateValue  param
+      when "answer" then api.setQuestionCreateAnswer param
+
+    currentQuestion = api.getCurrentQuestion()
+
+    resp.send JSON.stringify(currentQuestion)
     
   robot.hear /^!trivia/, (resp) ->
     game.askQuestion(resp)
@@ -342,22 +358,6 @@ module.exports = (robot) ->
 
   robot.hear /^!scores/i, (resp) ->
     game.checkScore(resp, "all")
-
-  robot.hear /^!set-question ([a-z]+) "([\s0-9A-Za-z-]+)"/i, (msg) ->
-    command = msg.match[1]
-    param = msg.match[2]
-    console.log "command #{command}"
-    console.log "param #{param}"
-    
-    switch command
-      when "body" then api.setQuestionCreateBody  param
-      when "category" then api.setQuestionCreateCategory param
-      when "value" then api.setQuestionCreateValue  param
-      when "answer" then api.setQuestionCreateAnswer param
-
-    currentQuestion = api.getCurrentQuestion()
-
-    msg.send JSON.stringify(currentQuestion)
 
   robot.hear /^!h(int)?/, (resp) ->
     game.hint(resp)
