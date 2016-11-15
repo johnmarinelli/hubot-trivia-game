@@ -73,7 +73,6 @@ class Game
     @intervalId = null
     @questions = JSON.parse buffer
     @questionTimeoutSeconds = 15
-    @baseApiUrl = "#{process.env['PROGRAMMING_TRIVIA_CMS_URL']}/api"
     @robot.logger.debug "Initiated trivia game script."
 
   resetQuestionState: () ->
