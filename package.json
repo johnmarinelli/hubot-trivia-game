@@ -1,7 +1,7 @@
 {
   "name": "ltcla-hubot-trivia-game",
   "description": "Learn To Code LA trivia bot",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "author": "Michael Yin <mikeyin@mikeyin.org>",
   "license": "MIT",
   "keywords": [

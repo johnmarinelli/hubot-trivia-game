@@ -87,10 +87,7 @@ class Game
     @intervalId = null
 
   setQuiz: (quiz) ->
-    console.log("QUIZ")
-    console.log(quiz)
     @questions = quiz['question-ids']
-    console.log(@questions)
 
   askQuestion: (resp) ->
     unless @currentQ # set current question
@@ -134,7 +131,6 @@ class Game
       resp.send "There is no active question!"
 
   answerQuestion: (resp, guess) ->
-    console.log guess
     if @currentQ
       checkGuess = guess.toLowerCase()
       # remove html entities (slack's adapter sends & as &amp; now)
@@ -143,8 +139,6 @@ class Game
       checkGuess = checkGuess.replace /[\\'"\.,-\/#!$%\^&\*;:{}=\-_`~()\s]/g, ""
       checkAnswer = @currentQ.validAnswer.toLowerCase().replace /[\\'"\.,-\/#!$%\^&\*;:{}=\-_`~()\s]/g, ""
       checkAnswer = checkAnswer.replace /^(an|the)/g, ""
-      console.log "checkGuess: #{checkGuess}"
-      console.log "checkAnswer: #{checkAnswer}"
       if AnswerChecker(checkGuess, checkAnswer)
         resp.reply "YOU ARE CORRECT! The answer is #{@currentQ.answer}"
         name = resp.envelope.user.name.toLowerCase().trim()
@@ -196,28 +190,35 @@ class ApiClient
     @questionCreateCategory = 'category'
     @questionCreateValue = '1'
 
+  help: (resp) ->
+    doc = """
+    !dev list-quizzes - List all quizzes.
+    !dev get-quiz $id_or_name - Get a quiz by name or id.
+    !dev create-quiz $name - Create a quiz with 0 questions named `name`.
+    !dev delete-quiz $id - Delete a quiz by $id.
+    !set-question $param "$value" - Sets bound question's $param ({body|answer|value|category}) to $value.  $value must be quoted.
+    !dev add-question-to-quiz $quiz_name - Adds the bound question to quiz name $quiz_name.
+    !dev delete-question-quiz $quiz_name $question_id - Removes question where id = $id from quiz with name $quiz_name.
+    """
+    resp.send(doc)
+
+
   apiGet: (path, callback, params = {}) ->
     url = "#{@baseApiUrl}/#{path}/#{params['id'] || ''}"
-    console.log url
 
     @robot.http(url)
       .get() (err, res, body) ->
-        console.log(body)
         callback err, res, body
 
   apiPost: (path, callback, args) ->
     json = JSON.stringify args
-    console.log(json)
     @robot.http("#{@baseApiUrl}/#{path}")
       .header('Content-Type', 'application/json')
       .post(json) (err, res, body) ->
-        console.log(body)
         callback err , res, body
 
   addQuestion: (quizName, callback) ->
     json = JSON.stringify(@getCurrentQuestion())
-    
-    console.log("Sending #{json} to #{quizName}")
 
     @robot.http("#{@baseApiUrl}/quizzes/#{quizName}/questions")
       .header('Content-Type', 'application/json')
@@ -227,7 +228,6 @@ class ApiClient
   deleteQuestion: (quizName, questionId, callback) ->
     url = "#{@baseApiUrl}/quizzes/#{quizName}/questions/#{questionId}"
 
-    console.log("Sending DELETE to #{url}")
     @robot.http(url)
       .del() (err, res, body) ->
         callback err, res, body
@@ -247,7 +247,6 @@ class ApiClient
   deleteQuiz: (quizName, callback) ->
     url = "#{@baseApiUrl}/quizzes/#{quizName}"
 
-    console.log("Sending DELETE to #{url}")
     @robot.http(url)
       .del() (err, res, body) ->
         callback err, res, body
@@ -262,13 +261,10 @@ class ApiClient
 
   dev: (resp, command, args...) ->
     response = ''
-    console.log(args)
 
     callback = (err, res, body) ->
-      console.log('callback')
       resp.send('callback (resp.send)')
       if err
-        console.log err
         return err
       resp.send body
       body
@@ -296,15 +292,12 @@ module.exports = (robot) ->
     api.apiGet "quizzes/#{resp.match[1]}", (err, res, body) ->
       game.setQuiz(JSON.parse(body))
       if err
-        console.log err
         return err
       body
 
   robot.hear /^!set-question ([a-z]+) ("|“)([\s0-9A-Za-z-]+)"/i, (resp) ->
     command = resp.match[1]
     param = resp.match[3]
-    console.log "command #{command}"
-    console.log "param #{param}"
     
     switch command
       when "body" then api.setQuestionCreateBody  param
@@ -334,4 +327,8 @@ module.exports = (robot) ->
   robot.hear /^!h(int)?/, (resp) ->
     game.hint(resp)
 
+  robot.hear /^!apihelp/, (resp) ->
+    api.help(resp)
+
 module.ApiClient = ApiClient
+
