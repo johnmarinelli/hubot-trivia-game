@@ -28,6 +28,7 @@ Fs = require 'fs'
 Path = require 'path'
 Cheerio = require 'cheerio'
 AnswerChecker = require './answer-checker'
+Util = require 'util'
 
 
 class Timer
@@ -189,6 +190,8 @@ class ApiClient
     @questionCreateAnswer = 'answer'
     @questionCreateCategory = 'category'
     @questionCreateValue = '1'
+    @authToken = ''
+    @username = ''
 
   help: (resp) ->
     doc = """
@@ -205,8 +208,11 @@ class ApiClient
 
   apiGet: (path, callback, params = {}) ->
     url = "#{@baseApiUrl}/#{path}/#{params['id'] || ''}"
+    console.log('apiGet authToken: ' + @authToken)
+    cookie = "#{@authToken};username=#{@username}"
 
     @robot.http(url)
+      .header('cookie', cookie)
       .get() (err, res, body) ->
         callback err, res, body
 
@@ -259,17 +265,60 @@ class ApiClient
       "value": @questionCreateValue
     }
 
+  login: (callback, username, password) ->
+    json = JSON.stringify { 'username': username, 'password': password }
+    @username = username
+    @robot.http("#{process.env['PROGRAMMING_TRIVIA_CMS_URL']}/login")
+      .header('Content-Type', 'application/json')
+      .post(json) (err, res, body) ->
+        callback err , res, body
+
+  logout: (callback) ->
+    cookie = "#{@authToken};username=#{@username}"
+
+    @robot.http("#{process.env['PROGRAMMING_TRIVIA_CMS_URL']}/logout")
+      .header('cookie', cookie)
+      .post() (err, res, body) ->
+        callback err, res, body
+
   dev: (resp, command, args...) ->
     response = ''
 
     callback = (err, res, body) ->
-      resp.send('callback (resp.send)')
       if err
+        resp.send err
         return err
+      resp.send JSON.stringify(res.headers)
       resp.send body
       body
 
+    self = @
+
+    loginCallback = (err, res, body) ->
+      if err
+        resp.send err
+        return err
+
+      headers = res.headers
+      resp.send(JSON.stringify(headers))
+      setCookie = headers['set-cookie']
+
+      self.authToken = setCookie[0].split(';')[0] unless body != '1'
+      resp.send(self.authToken)
+      resp.send(body)
+      body
+
+    logoutCallback = (err, res, body) ->
+      if err
+        resp.send err
+        return err
+
+      resp.send(body)
+      body
+
     switch command
+      when "login" then response = @login loginCallback, args[0], args[1]
+      when "logout" then response = @logout logoutCallback
       when "list-quizzes" then response = @apiGet 'quizzes', callback
       when "get-quiz" then response = @apiGet "quizzes/#{args[0]}", callback
       when "create-quiz" then response = @apiPost 'quizzes/create', callback, { "quiz-name": args[0] }
@@ -277,7 +326,6 @@ class ApiClient
       when "add-question-to-quiz" then response = @addQuestion args[0], callback
       when "delete-question-from-quiz" then response = @deleteQuestion args[0], args[1], callback
       else resp.send "#{command} not found."
-    resp.send(response)
 
 module.exports = (robot) ->
   game = new Game(robot)
